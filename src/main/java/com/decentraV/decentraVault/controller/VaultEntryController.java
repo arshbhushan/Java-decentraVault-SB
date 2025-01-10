@@ -4,6 +4,7 @@ import com.decentraV.decentraVault.entity.User;
 import com.decentraV.decentraVault.entity.VaultEntry;
 import com.decentraV.decentraVault.service.UserService;
 import com.decentraV.decentraVault.service.VaultEntryService;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.types.ObjectId;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
@@ -17,11 +18,13 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
+import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
 
 @RestController
 @RequestMapping("/vault")
+@Slf4j
 public class VaultEntryController {
 
     @Autowired
@@ -35,15 +38,31 @@ public class VaultEntryController {
      */
     @GetMapping
     public ResponseEntity<List<VaultEntry>> getAllVaultEntries() {
+        log.info("Reached getAllVaultEntries endpoint");
+
+        // Fetch authenticated username
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
         String userName = authentication.getName();
+        log.info("Authenticated user: {}", userName);
+
+        // Fetch user by username
         User user = userService.findByUsername(userName);
 
-        if (user != null && user.getVaultEntries() != null && !user.getVaultEntries().isEmpty()) {
-            return new ResponseEntity<>(user.getVaultEntries(), HttpStatus.OK);
+        if (user == null) {
+            log.info("User not found: {}", userName);
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
         }
 
-        return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        log.info("Fetched user: {}", user);
+
+        // Fetch vault entries associated with the user
+        if (user.getVaultEntries() == null || user.getVaultEntries().isEmpty()) {
+            log.info("No vault entries found for user: {}", userName);
+            return new ResponseEntity<>(HttpStatus.NOT_FOUND);
+        }
+
+        log.info("Vault entries found: {}", user.getVaultEntries());
+        return new ResponseEntity<>(user.getVaultEntries(), HttpStatus.OK);
     }
 
     /**
@@ -56,39 +75,26 @@ public class VaultEntryController {
             @RequestParam("tags") String tags,
             @RequestParam("file") MultipartFile file) {
         try {
-            // Get the authenticated user's name
-            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
-            String userName = authentication.getName();
-
-            // Create a new VaultEntry object
+            String userName = SecurityContextHolder.getContext().getAuthentication().getName();
             VaultEntry vaultEntry = new VaultEntry();
             vaultEntry.setTitle(title);
             vaultEntry.setContent(content);
-            vaultEntry.setTags(tags.split(",")); // Assuming tags are passed as a comma-separated string
+            vaultEntry.setTags(tags.split(","));
 
-            // Save the file to the server
             if (file != null && !file.isEmpty()) {
                 String uploadDir = "uploads/";
-                Path uploadPath = Paths.get(uploadDir);
-
-                // Create directory if it doesn't exist
+                Path uploadPath = Path.of(uploadDir);
                 if (!Files.exists(uploadPath)) {
                     Files.createDirectories(uploadPath);
                 }
 
-                // Save the file with a unique name
                 String fileName = System.currentTimeMillis() + "_" + file.getOriginalFilename();
                 Path filePath = uploadPath.resolve(fileName);
                 Files.copy(file.getInputStream(), filePath);
-
-                // Set the file path in the VaultEntry
                 vaultEntry.setFilePath(filePath.toString());
             }
 
-            // Save the VaultEntry
             vaultEntryService.saveEntry(vaultEntry, userName);
-
-            // Return the created VaultEntry in the response
             return new ResponseEntity<>(vaultEntry, HttpStatus.CREATED);
 
         } catch (Exception e) {
@@ -96,7 +102,6 @@ public class VaultEntryController {
             return new ResponseEntity<>(HttpStatus.BAD_REQUEST);
         }
     }
-
 
     /**
      * Get a specific vault entry by ID for the authenticated user.
